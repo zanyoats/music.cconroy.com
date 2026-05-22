@@ -1,13 +1,17 @@
-name: Deploy Kukicha Config
-
-env:
-  KUKICHA_VERSION: "0.1.0a2"
+name: Deploy Kukicha
 
 on:
-  push:
-    paths:
-      - ".github/workflows/assets/kukicha.toml"
-      - ".github/workflows/deploy-kukicha-config.yml"
+  workflow_dispatch:
+    inputs:
+      kukicha_version:
+        description: Kukicha version to install. Leave blank to skip.
+        required: false
+        type: string
+      update_config:
+        description: Deploy .github/workflows/assets/kukicha.toml
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -21,53 +25,11 @@ jobs:
       DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
     steps:
       - name: Checkout repo
+        if: ${{ inputs.update_config }}
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Determine deploy actions
-        id: changes
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          CONFIG_SOURCE=".github/workflows/assets/kukicha.toml"
-          WORKFLOW_SOURCE=".github/workflows/deploy-kukicha-config.yml"
-          BEFORE="${{ github.event.before }}"
-          AFTER="${{ github.sha }}"
-
-          deploy_config=false
-          upgrade_kukicha=false
-
-          if [ -z "${BEFORE}" ] || [ "${BEFORE}" = "0000000000000000000000000000000000000000" ]; then
-            deploy_config=true
-            upgrade_kukicha=true
-          else
-            if ! git diff --quiet "${BEFORE}" "${AFTER}" -- "${CONFIG_SOURCE}"; then
-              deploy_config=true
-            fi
-
-            previous_workflow="$(mktemp)"
-            previous_version=""
-            if git show "${BEFORE}:${WORKFLOW_SOURCE}" > "${previous_workflow}" 2>/dev/null; then
-              previous_version="$(sed -nE "s/^[[:space:]]*KUKICHA_VERSION:[[:space:]]*['\"]?([^'\"#[:space:]]+)['\"]?.*$/\1/p" "${previous_workflow}" | head -n 1)"
-            fi
-
-            if [ "${previous_version}" != "${KUKICHA_VERSION}" ]; then
-              upgrade_kukicha=true
-            fi
-          fi
-
-          {
-            echo "deploy_config=${deploy_config}"
-            echo "upgrade_kukicha=${upgrade_kukicha}"
-          } >> "${GITHUB_OUTPUT}"
-
-          echo "Deploy config: ${deploy_config}"
-          echo "Upgrade Kukicha: ${upgrade_kukicha}"
 
       - name: Configure SSH
-        if: ${{ steps.changes.outputs.deploy_config == 'true' || steps.changes.outputs.upgrade_kukicha == 'true' }}
+        if: ${{ inputs.update_config || inputs.kukicha_version != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -88,7 +50,7 @@ jobs:
           ssh-keyscan -H "${DEPLOY_HOST}" >> "${HOME}/.ssh/known_hosts"
 
       - name: Deploy config
-        if: ${{ steps.changes.outputs.deploy_config == 'true' }}
+        if: ${{ inputs.update_config }}
         shell: bash
         run: |
           set -euo pipefail
@@ -118,16 +80,13 @@ jobs:
           echo "Kukicha config deployed."
           REMOTE
 
-      - name: Upgrade Kukicha
-        if: ${{ steps.changes.outputs.upgrade_kukicha == 'true' }}
+      - name: Install Kukicha version
+        if: ${{ inputs.kukicha_version != '' }}
+        env:
+          KUKICHA_VERSION: ${{ inputs.kukicha_version }}
         shell: bash
         run: |
           set -euo pipefail
-
-          if [ -z "${KUKICHA_VERSION:-}" ]; then
-            echo "Missing KUKICHA_VERSION workflow env value."
-            exit 1
-          fi
 
           case "${KUKICHA_VERSION}" in
             *[!A-Za-z0-9._+!-]*)
@@ -152,11 +111,11 @@ jobs:
 
           export UV_TOOL_DIR UV_TOOL_BIN_DIR
           "${UV_INSTALL_DIR}/uv" tool install --force "kukicha==${KUKICHA_VERSION}"
-          echo "Kukicha upgraded to ${KUKICHA_VERSION}."
+          echo "Kukicha installed at ${KUKICHA_VERSION}."
           REMOTE
 
       - name: Restart Kukicha if running
-        if: ${{ steps.changes.outputs.deploy_config == 'true' || steps.changes.outputs.upgrade_kukicha == 'true' }}
+        if: ${{ inputs.update_config || inputs.kukicha_version != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -174,6 +133,6 @@ jobs:
           fi
           REMOTE
 
-      - name: No deploy action needed
-        if: ${{ steps.changes.outputs.deploy_config != 'true' && steps.changes.outputs.upgrade_kukicha != 'true' }}
-        run: echo "No Kukicha config or version change detected."
+      - name: No deploy action requested
+        if: ${{ !inputs.update_config && inputs.kukicha_version == '' }}
+        run: echo "No config deploy or Kukicha version install requested."

@@ -1,11 +1,12 @@
 name: Setup Music VPS
 
-env:
-  KUKICHA_VERSION: "0.1.0a1"
-
 on:
   workflow_dispatch:
     inputs:
+      kukicha_version:
+        description: Kukicha version to install
+        required: true
+        type: string
       region:
         description: Vultr region
         type: choice
@@ -81,7 +82,7 @@ jobs:
           SSHKEY_ID: ${{ inputs.sshkey_id }}
           TAG: ${{ inputs.tag || vars.VULTR_TAG }}
           ENABLE_IPV6: ${{ inputs.enable_ipv6 }}
-          KUKICHA_VERSION: ${{ env.KUKICHA_VERSION }}
+          KUKICHA_VERSION: ${{ inputs.kukicha_version }}
           KUKICHA_PASSWORD: ${{ secrets.KUKICHA_PASSWORD }}
           OPENSUBSONIC_PASSWORD: ${{ secrets.OPENSUBSONIC_PASSWORD }}
         shell: bash
@@ -100,6 +101,16 @@ jobs:
             echo "Missing OPENSUBSONIC_PASSWORD secret."
             exit 1
           fi
+          if [ -z "${KUKICHA_VERSION:-}" ]; then
+            echo "Missing kukicha_version workflow input."
+            exit 1
+          fi
+          case "${KUKICHA_VERSION}" in
+            *[!A-Za-z0-9._+!-]*)
+              echo "KUKICHA_VERSION contains unsupported characters."
+              exit 1
+              ;;
+          esac
 
           USER_DATA_TEMPLATE=".github/workflows/assets/vultr_user_data.sh"
           if [ ! -f "${USER_DATA_TEMPLATE}" ]; then
@@ -267,7 +278,7 @@ jobs:
             echo "- Domain: music.cconroy.com"
             echo "- HTTPS proxy: Caddy -> 127.0.0.1:4533, enabled for future boots"
             echo "- Caddy initial start: skipped until DNS is configured"
-            echo "- Kukicha version: ${{ env.KUKICHA_VERSION }}"
+            echo "- Kukicha version: ${{ inputs.kukicha_version }}"
             echo "- Kukicha config: /root/.config/kukicha/kukicha.toml"
             echo "- Kukicha service: OpenRC supervise-daemon, enabled for future boots"
             echo "- Kukicha logs: /var/log/kukicha/kukicha.log and /var/log/kukicha/kukicha.err.log"

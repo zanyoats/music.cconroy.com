@@ -4,7 +4,7 @@ Setup workflow and server notes for the Kukicha music server.
 
 ## Provisioning
 
-Run the `Setup Music VPS` GitHub Actions workflow to create the Vultr instance.
+Run the `Setup Music VPS` GitHub Actions workflow to create the Vultr instance. Set `kukicha_version` to choose the Kukicha package version installed during provisioning.
 
 After provisioning, point DNS at the public IP reported by the workflow:
 
@@ -102,10 +102,10 @@ Kukicha config:
 Deploy config changes or Kukicha version upgrades from this repo:
 
 ```text
-GitHub Actions -> Deploy Kukicha Config
+GitHub Actions -> Deploy Kukicha
 ```
 
-The deploy workflow runs when `.github/workflows/assets/kukicha.toml` or `.github/workflows/deploy-kukicha-config.yml` changes. It can deploy only the config, upgrade only the `KUKICHA_VERSION` package, or do both in one run. It restarts Kukicha only if the service is already running. It uses:
+Run the deploy workflow manually with `workflow_dispatch`. Use `update_config` to copy `.github/workflows/assets/kukicha.toml`, and set `kukicha_version` to install a specific Kukicha version. You can deploy only the config, install only a version, or do both in one run. It restarts Kukicha only if the service is already running. It uses:
 
 ```text
 vars.DEPLOY_HOST
