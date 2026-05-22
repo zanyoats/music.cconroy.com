@@ -1,0 +1,21 @@
+log_level = "INFO"
+appearance = "dim"
+accent_color = "dark-orange"
+trusted_proxy_headers = true # set if in trusted topology with a reverse proxy
+
+[auth]
+username = "zanyoats"
+password_hash_file = "~/.config/kukicha/password.hash"
+cookie_max_age = "180d"
+cookie_name = "kukicha_cookie"
+
+[opensubsonic]
+mount_prefix = "/"
+secret_file = "~/.config/kukicha/opensubsonic.secret"
+
+[[remote_roots]]
+name = "wasabi-player"
+endpoint_url = "https://s3.us-east-1.wasabisys.com"
+bucket = "com.cconroy.music"
+prefix = "tracks/"
+profile = "wasabi-player"
