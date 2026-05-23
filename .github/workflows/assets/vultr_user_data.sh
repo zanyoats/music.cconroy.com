@@ -4,12 +4,52 @@ set -eu
 exec > /var/log/user-data.log 2>&1
 echo "user-data start: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+finish() {
+  status="$?"
+  timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+  if [ "${status}" -eq 0 ]; then
+    echo "user-data ok: ${timestamp}" | tee /var/log/user-data.ok
+  else
+    echo "user-data failed (${status}): ${timestamp}" | tee /var/log/user-data.failed
+  fi
+
+  exit "${status}"
+}
+trap finish EXIT
+
+start_service() {
+  service_name="$1"
+
+  if rc-service "${service_name}" status >/dev/null 2>&1; then
+    echo "service ${service_name} already started"
+  else
+    rc-service "${service_name}" start
+  fi
+}
+
+enable_service() {
+  service_name="$1"
+  runlevel="$2"
+
+  if [ -e "/etc/runlevels/${runlevel}/${service_name}" ]; then
+    echo "service ${service_name} already enabled in runlevel ${runlevel}"
+  else
+    rc-update add "${service_name}" "${runlevel}"
+  fi
+}
+
 APP_PORT="4533"
 DOMAIN="music.cconroy.com"
 KUKICHA_LOG_DIR="/var/log/kukicha"
 UV_INSTALL_DIR="/usr/local/bin"
 UV_TOOL_DIR="/opt/uv/tools"
 UV_TOOL_BIN_DIR="/usr/local/bin"
+
+export HOME="/root"
+export XDG_CONFIG_HOME="/root/.config"
+mkdir -p "${XDG_CONFIG_HOME}"
+chmod 700 "${XDG_CONFIG_HOME}"
 
 ALPINE_VERSION="$(cut -d. -f1,2 /etc/alpine-release)"
 COMMUNITY_REPO="https://dl-cdn.alpinelinux.org/alpine/v${ALPINE_VERSION}/community"
@@ -35,7 +75,14 @@ EOF
 caddy fmt --overwrite /etc/caddy/Caddyfile
 
 mkdir -p "${UV_TOOL_DIR}" "${UV_TOOL_BIN_DIR}"
-curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL="${UV_INSTALL_DIR}" sh
+if [ -x "${UV_INSTALL_DIR}/uv" ]; then
+  echo "uv already installed at ${UV_INSTALL_DIR}/uv"
+else
+  uv_installer="$(mktemp)"
+  curl -LsSf https://astral.sh/uv/install.sh -o "${uv_installer}"
+  env UV_UNMANAGED_INSTALL="${UV_INSTALL_DIR}" sh "${uv_installer}"
+  rm -f "${uv_installer}"
+fi
 
 mkdir -p "${KUKICHA_LOG_DIR}"
 chmod 755 "${KUKICHA_LOG_DIR}"
@@ -63,20 +110,23 @@ depend() {
 EOF
 chmod 755 /etc/init.d/kukicha
 
-rc-service sshd start
-rc-update add sshd default
+start_service sshd
+enable_service sshd default
 
-rc-update add kukicha default
+enable_service kukicha default
 
-rc-update add caddy default
+enable_service caddy default
 
 ufw default deny incoming
 ufw default allow outgoing
 ufw allow ssh
 ufw allow http
 ufw allow https
-ufw --force enable
-rc-service ufw start
-rc-update add ufw default
 
-echo "user-data ok: $(date -u +%Y-%m-%dT%H:%M:%SZ)" > /var/log/user-data.ok
+if ufw status | grep -q "Status: active"; then
+  echo "ufw already active"
+else
+  ufw --force enable
+fi
+start_service ufw
+enable_service ufw default
