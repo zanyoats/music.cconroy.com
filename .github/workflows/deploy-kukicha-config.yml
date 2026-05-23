@@ -12,6 +12,11 @@ on:
         required: true
         default: false
         type: boolean
+      update_s3_credentials:
+        description: Deploy botocore S3 profile credentials
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -29,7 +34,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure SSH
-        if: ${{ inputs.update_config || inputs.kukicha_version != '' }}
+        if: ${{ inputs.update_config || inputs.update_s3_credentials || inputs.kukicha_version != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -80,10 +85,82 @@ jobs:
           echo "Kukicha config deployed."
           REMOTE
 
+      - name: Deploy S3 credentials
+        if: ${{ inputs.update_s3_credentials }}
+        env:
+          KUKICHA_S3_ACCESS_KEY_ID: ${{ secrets.KUKICHA_S3_ACCESS_KEY_ID }}
+          KUKICHA_S3_SECRET_ACCESS_KEY: ${{ secrets.KUKICHA_S3_SECRET_ACCESS_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${KUKICHA_S3_ACCESS_KEY_ID:-}" ]; then
+            echo "Missing KUKICHA_S3_ACCESS_KEY_ID secret."
+            exit 1
+          fi
+          if [ -z "${KUKICHA_S3_SECRET_ACCESS_KEY:-}" ]; then
+            echo "Missing KUKICHA_S3_SECRET_ACCESS_KEY secret."
+            exit 1
+          fi
+
+          S3_PROFILE="wasabi-player"
+          S3_REGION="us-east-1"
+
+          tmp_dir="$(mktemp -d)"
+          cleanup() {
+            rm -rf "${tmp_dir}"
+          }
+          trap cleanup EXIT
+
+          umask 077
+          {
+            printf '[%s]\n' "${S3_PROFILE}"
+            printf 'aws_access_key_id = %s\n' "${KUKICHA_S3_ACCESS_KEY_ID}"
+            printf 'aws_secret_access_key = %s\n' "${KUKICHA_S3_SECRET_ACCESS_KEY}"
+          } > "${tmp_dir}/credentials"
+
+          {
+            printf '[profile %s]\n' "${S3_PROFILE}"
+            printf 'region = %s\n' "${S3_REGION}"
+          } > "${tmp_dir}/config"
+
+          ssh -i "${HOME}/.ssh/deploy_key" \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "mkdir -p /root/.aws && chmod 700 /root/.aws"
+
+          scp -i "${HOME}/.ssh/deploy_key" \
+            "${tmp_dir}/credentials" \
+            "${DEPLOY_USER}@${DEPLOY_HOST}:/root/.aws/credentials.tmp"
+
+          scp -i "${HOME}/.ssh/deploy_key" \
+            "${tmp_dir}/config" \
+            "${DEPLOY_USER}@${DEPLOY_HOST}:/root/.aws/config.tmp"
+
+          ssh -i "${HOME}/.ssh/deploy_key" \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "sh -s" <<'REMOTE'
+          set -eu
+
+          AWS_DIR="/root/.aws"
+          AWS_CREDENTIALS="${AWS_DIR}/credentials"
+          AWS_CONFIG="${AWS_DIR}/config"
+
+          mv "${AWS_CREDENTIALS}.tmp" "${AWS_CREDENTIALS}"
+          mv "${AWS_CONFIG}.tmp" "${AWS_CONFIG}"
+
+          chown root:root "${AWS_DIR}" "${AWS_CREDENTIALS}" "${AWS_CONFIG}"
+          chmod 700 "${AWS_DIR}"
+          chmod 600 "${AWS_CREDENTIALS}" "${AWS_CONFIG}"
+
+          echo "Kukicha S3 credentials deployed."
+          REMOTE
+
       - name: Install Kukicha version
         if: ${{ inputs.kukicha_version != '' }}
         env:
           KUKICHA_VERSION: ${{ inputs.kukicha_version }}
+          KUKICHA_PASSWORD: ${{ secrets.KUKICHA_PASSWORD }}
+          OPENSUBSONIC_PASSWORD: ${{ secrets.OPENSUBSONIC_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
@@ -95,11 +172,23 @@ jobs:
               ;;
           esac
 
+          encode_b64() {
+            if base64 --help 2>/dev/null | grep -q -- "-w"; then
+              base64 -w 0
+            else
+              base64 | tr -d '\n'
+            fi
+          }
+
+          KUKICHA_PASSWORD_B64="$(printf '%s' "${KUKICHA_PASSWORD:-}" | encode_b64)"
+          OPENSUBSONIC_PASSWORD_B64="$(printf '%s' "${OPENSUBSONIC_PASSWORD:-}" | encode_b64)"
+
           ssh -i "${HOME}/.ssh/deploy_key" \
             "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            "KUKICHA_VERSION='${KUKICHA_VERSION}' sh -s" <<'REMOTE'
+            "KUKICHA_VERSION='${KUKICHA_VERSION}' KUKICHA_PASSWORD_B64='${KUKICHA_PASSWORD_B64}' OPENSUBSONIC_PASSWORD_B64='${OPENSUBSONIC_PASSWORD_B64}' sh -s" <<'REMOTE'
           set -eu
 
+          KUKICHA_CONFIG_DIR="/root/.config/kukicha"
           UV_INSTALL_DIR="/usr/local/bin"
           UV_TOOL_DIR="/opt/uv/tools"
           UV_TOOL_BIN_DIR="/usr/local/bin"
@@ -112,10 +201,27 @@ jobs:
           export UV_TOOL_DIR UV_TOOL_BIN_DIR
           "${UV_INSTALL_DIR}/uv" tool install --force "kukicha==${KUKICHA_VERSION}"
           echo "Kukicha installed at ${KUKICHA_VERSION}."
+
+          mkdir -p "${KUKICHA_CONFIG_DIR}"
+          chmod 700 /root/.config "${KUKICHA_CONFIG_DIR}"
+
+          if [ -z "${KUKICHA_PASSWORD_B64:-}" ]; then
+            echo "Missing KUKICHA_PASSWORD secret."
+            exit 1
+          fi
+          if [ -z "${OPENSUBSONIC_PASSWORD_B64:-}" ]; then
+            echo "Missing OPENSUBSONIC_PASSWORD secret."
+            exit 1
+          fi
+
+          HOME=/root KUKICHA_PASSWORD="$(printf '%s' "${KUKICHA_PASSWORD_B64}" | base64 -d)" "${UV_TOOL_BIN_DIR}/kukicha" auth password
+          HOME=/root OPENSUBSONIC_PASSWORD="$(printf '%s' "${OPENSUBSONIC_PASSWORD_B64}" | base64 -d)" "${UV_TOOL_BIN_DIR}/kukicha" opensubsonic password
+          chmod 600 "${KUKICHA_CONFIG_DIR}/password.hash" "${KUKICHA_CONFIG_DIR}/opensubsonic.secret"
+          echo "Kukicha auth files configured."
           REMOTE
 
       - name: Restart Kukicha if running
-        if: ${{ inputs.update_config || inputs.kukicha_version != '' }}
+        if: ${{ inputs.update_config || inputs.update_s3_credentials || inputs.kukicha_version != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -134,5 +240,5 @@ jobs:
           REMOTE
 
       - name: No deploy action requested
-        if: ${{ !inputs.update_config && inputs.kukicha_version == '' }}
-        run: echo "No config deploy or Kukicha version install requested."
+        if: ${{ !inputs.update_config && !inputs.update_s3_credentials && inputs.kukicha_version == '' }}
+        run: echo "No config deploy, S3 credentials deploy, or Kukicha version install requested."

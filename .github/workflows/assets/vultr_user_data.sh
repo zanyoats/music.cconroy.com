@@ -6,11 +6,6 @@ echo "user-data start: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 APP_PORT="4533"
 DOMAIN="music.cconroy.com"
-KUKICHA_VERSION="__KUKICHA_VERSION__"
-KUKICHA_CONFIG_B64="__KUKICHA_CONFIG_B64__"
-KUKICHA_PASSWORD_B64="__KUKICHA_PASSWORD_B64__"
-OPENSUBSONIC_PASSWORD_B64="__OPENSUBSONIC_PASSWORD_B64__"
-KUKICHA_CONFIG_DIR="/root/.config/kukicha"
 KUKICHA_LOG_DIR="/var/log/kukicha"
 UV_INSTALL_DIR="/usr/local/bin"
 UV_TOOL_DIR="/opt/uv/tools"
@@ -39,18 +34,8 @@ ${DOMAIN} {
 EOF
 caddy fmt --overwrite /etc/caddy/Caddyfile
 
-mkdir -p "${KUKICHA_CONFIG_DIR}"
-printf '%s' "${KUKICHA_CONFIG_B64}" | base64 -d > "${KUKICHA_CONFIG_DIR}/kukicha.toml"
-chmod 700 /root/.config "${KUKICHA_CONFIG_DIR}"
-chmod 600 "${KUKICHA_CONFIG_DIR}/kukicha.toml"
-
 mkdir -p "${UV_TOOL_DIR}" "${UV_TOOL_BIN_DIR}"
 curl -LsSf https://astral.sh/uv/install.sh | env UV_UNMANAGED_INSTALL="${UV_INSTALL_DIR}" sh
-export UV_TOOL_DIR UV_TOOL_BIN_DIR
-"${UV_INSTALL_DIR}/uv" tool install "kukicha==${KUKICHA_VERSION}"
-HOME=/root KUKICHA_PASSWORD="$(printf '%s' "${KUKICHA_PASSWORD_B64}" | base64 -d)" "${UV_TOOL_BIN_DIR}/kukicha" auth password
-HOME=/root OPENSUBSONIC_PASSWORD="$(printf '%s' "${OPENSUBSONIC_PASSWORD_B64}" | base64 -d)" "${UV_TOOL_BIN_DIR}/kukicha" opensubsonic password
-unset KUKICHA_PASSWORD_B64 OPENSUBSONIC_PASSWORD_B64
 
 mkdir -p "${KUKICHA_LOG_DIR}"
 chmod 755 "${KUKICHA_LOG_DIR}"

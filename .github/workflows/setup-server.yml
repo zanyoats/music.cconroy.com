@@ -3,10 +3,6 @@ name: Setup Music VPS
 on:
   workflow_dispatch:
     inputs:
-      kukicha_version:
-        description: Kukicha version to install
-        required: true
-        type: string
       region:
         description: Vultr region
         type: choice
@@ -82,9 +78,6 @@ jobs:
           SSHKEY_ID: ${{ inputs.sshkey_id }}
           TAG: ${{ inputs.tag || vars.VULTR_TAG }}
           ENABLE_IPV6: ${{ inputs.enable_ipv6 }}
-          KUKICHA_VERSION: ${{ inputs.kukicha_version }}
-          KUKICHA_PASSWORD: ${{ secrets.KUKICHA_PASSWORD }}
-          OPENSUBSONIC_PASSWORD: ${{ secrets.OPENSUBSONIC_PASSWORD }}
         shell: bash
         run: |
           set -euo pipefail
@@ -93,78 +86,16 @@ jobs:
             echo "Missing VULTR_API_KEY secret."
             exit 1
           fi
-          if [ -z "${KUKICHA_PASSWORD:-}" ]; then
-            echo "Missing KUKICHA_PASSWORD secret."
-            exit 1
-          fi
-          if [ -z "${OPENSUBSONIC_PASSWORD:-}" ]; then
-            echo "Missing OPENSUBSONIC_PASSWORD secret."
-            exit 1
-          fi
-          if [ -z "${KUKICHA_VERSION:-}" ]; then
-            echo "Missing kukicha_version workflow input."
-            exit 1
-          fi
-          case "${KUKICHA_VERSION}" in
-            *[!A-Za-z0-9._+!-]*)
-              echo "KUKICHA_VERSION contains unsupported characters."
-              exit 1
-              ;;
-          esac
 
           USER_DATA_TEMPLATE=".github/workflows/assets/vultr_user_data.sh"
           if [ ! -f "${USER_DATA_TEMPLATE}" ]; then
             echo "Missing ${USER_DATA_TEMPLATE} in repo."
             exit 1
           fi
-          KUKICHA_CONFIG_TEMPLATE=".github/workflows/assets/kukicha.toml"
-          if [ ! -f "${KUKICHA_CONFIG_TEMPLATE}" ]; then
-            echo "Missing ${KUKICHA_CONFIG_TEMPLATE} in repo."
-            exit 1
-          fi
 
           ENABLE_IPV6="$(echo "${ENABLE_IPV6:-false}" | tr '[:upper:]' '[:lower:]')"
 
-          USER_DATA_RENDERED="$(mktemp)"
-          if ! grep -q "__KUKICHA_VERSION__" "${USER_DATA_TEMPLATE}"; then
-            echo "Missing __KUKICHA_VERSION__ placeholder in ${USER_DATA_TEMPLATE}."
-            exit 1
-          fi
-          if ! grep -q "__KUKICHA_CONFIG_B64__" "${USER_DATA_TEMPLATE}"; then
-            echo "Missing __KUKICHA_CONFIG_B64__ placeholder in ${USER_DATA_TEMPLATE}."
-            exit 1
-          fi
-          if ! grep -q "__KUKICHA_PASSWORD_B64__" "${USER_DATA_TEMPLATE}"; then
-            echo "Missing __KUKICHA_PASSWORD_B64__ placeholder in ${USER_DATA_TEMPLATE}."
-            exit 1
-          fi
-          if ! grep -q "__OPENSUBSONIC_PASSWORD_B64__" "${USER_DATA_TEMPLATE}"; then
-            echo "Missing __OPENSUBSONIC_PASSWORD_B64__ placeholder in ${USER_DATA_TEMPLATE}."
-            exit 1
-          fi
-
-          encode_b64() {
-            if base64 --help 2>/dev/null | grep -q -- "-w"; then
-              base64 -w 0
-            else
-              base64 | tr -d '\n'
-            fi
-          }
-
-          KUKICHA_CONFIG_B64="$(base64 -w 0 "${KUKICHA_CONFIG_TEMPLATE}" 2>/dev/null || base64 "${KUKICHA_CONFIG_TEMPLATE}" | tr -d '\n')"
-          KUKICHA_PASSWORD_B64="$(printf '%s' "${KUKICHA_PASSWORD}" | encode_b64)"
-          OPENSUBSONIC_PASSWORD_B64="$(printf '%s' "${OPENSUBSONIC_PASSWORD}" | encode_b64)"
-          escaped_kukicha_version="$(printf '%s' "${KUKICHA_VERSION}" | sed -e 's/[&|\\]/\\&/g')"
-          escaped_kukicha_config="$(printf '%s' "${KUKICHA_CONFIG_B64}" | sed -e 's/[&|\\]/\\&/g')"
-          escaped_kukicha_password="$(printf '%s' "${KUKICHA_PASSWORD_B64}" | sed -e 's/[&|\\]/\\&/g')"
-          escaped_opensubsonic_password="$(printf '%s' "${OPENSUBSONIC_PASSWORD_B64}" | sed -e 's/[&|\\]/\\&/g')"
-          sed -e "s|__KUKICHA_VERSION__|${escaped_kukicha_version}|g" \
-            -e "s|__KUKICHA_CONFIG_B64__|${escaped_kukicha_config}|g" \
-            -e "s|__KUKICHA_PASSWORD_B64__|${escaped_kukicha_password}|g" \
-            -e "s|__OPENSUBSONIC_PASSWORD_B64__|${escaped_opensubsonic_password}|g" \
-            "${USER_DATA_TEMPLATE}" > "${USER_DATA_RENDERED}"
-
-          USER_DATA_B64="$(base64 -w 0 "${USER_DATA_RENDERED}" 2>/dev/null || base64 "${USER_DATA_RENDERED}" | tr -d '\n')"
+          USER_DATA_B64="$(base64 -w 0 "${USER_DATA_TEMPLATE}" 2>/dev/null || base64 "${USER_DATA_TEMPLATE}" | tr -d '\n')"
 
           payload="$(jq -n \
             --arg region "${REGION}" \
@@ -275,13 +206,4 @@ jobs:
             echo "- Plan: ${{ inputs.plan }}"
             echo "- OS ID: ${{ inputs.os_id }}"
             echo "- Firewall Group: ${{ inputs.firewall_group_id }}"
-            echo "- Domain: music.cconroy.com"
-            echo "- HTTPS proxy: Caddy -> 127.0.0.1:4533, enabled for future boots"
-            echo "- Caddy initial start: skipped until DNS is configured"
-            echo "- Kukicha version: ${{ inputs.kukicha_version }}"
-            echo "- Kukicha config: /root/.config/kukicha/kukicha.toml"
-            echo "- Kukicha service: OpenRC supervise-daemon, enabled for future boots"
-            echo "- Kukicha logs: /var/log/kukicha/kukicha.log and /var/log/kukicha/kukicha.err.log"
-            echo "- Kukicha auth secret files: configured"
-            echo "- Open ports: 22/tcp, 80/tcp, 443/tcp"
           } >> "${GITHUB_STEP_SUMMARY}"
