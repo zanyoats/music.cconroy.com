@@ -4,7 +4,7 @@ Setup workflow and server notes for the Kukicha music server.
 
 ## Provisioning
 
-Run the `Setup Music VPS` GitHub Actions workflow to create the Vultr instance. After provisioning, run the `Deploy Kukicha` workflow with `update_config` and `update_s3_credentials` enabled, and `kukicha_version` set.
+Run the `Setup Music VPS` GitHub Actions workflow to create the Vultr instance. After provisioning, set `vars.DEPLOY_HOST` to the reported public IP, then run the `Deploy Kukicha` workflow with `update_config` and `update_s3_credentials` enabled, and `kukicha_version` set.
 
 After provisioning, point DNS at the public IP reported by the workflow:
 
