@@ -41,6 +41,7 @@ enable_service() {
 
 APP_PORT="4533"
 DOMAIN="music.cconroy.com"
+CADDY_LOG_DIR="/var/log/caddy"
 KUKICHA_LOG_DIR="/var/log/kukicha"
 UV_INSTALL_DIR="/usr/local/bin"
 UV_TOOL_DIR="/opt/uv/tools"
@@ -67,8 +68,34 @@ apk add --no-cache \
   acl \
   tzdata
 
+mkdir -p "${CADDY_LOG_DIR}"
+touch "${CADDY_LOG_DIR}/caddy.log" "${CADDY_LOG_DIR}/access.log"
+if id -u caddy >/dev/null 2>&1; then
+  chown caddy:caddy "${CADDY_LOG_DIR}" "${CADDY_LOG_DIR}/caddy.log" "${CADDY_LOG_DIR}/access.log"
+fi
+chmod 755 "${CADDY_LOG_DIR}"
+chmod 644 "${CADDY_LOG_DIR}/caddy.log" "${CADDY_LOG_DIR}/access.log"
+
 cat > /etc/caddy/Caddyfile <<EOF
+{
+	log {
+		output file ${CADDY_LOG_DIR}/caddy.log {
+			roll_size 10MiB
+			roll_keep 5
+			roll_keep_for 720h
+		}
+	}
+}
+
 ${DOMAIN} {
+	log {
+		output file ${CADDY_LOG_DIR}/access.log {
+			roll_size 10MiB
+			roll_keep 5
+			roll_keep_for 720h
+		}
+	}
+
 	reverse_proxy 127.0.0.1:${APP_PORT}
 }
 EOF

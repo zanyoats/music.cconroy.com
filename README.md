@@ -72,6 +72,8 @@ rc-update del kukicha default
 
 ## Logs
 
+OpenRC status commands only report whether a service is running. Use `tail` to read log files.
+
 Cloud-init setup log:
 
 ```sh
@@ -85,10 +87,11 @@ tail -f /var/log/kukicha/kukicha.log
 tail -f /var/log/kukicha/kukicha.err.log
 ```
 
-Caddy logs/status:
+Caddy logs:
 
 ```sh
-rc-service caddy status
+tail -f /var/log/caddy/caddy.log
+tail -f /var/log/caddy/access.log
 ```
 
 ## Config
