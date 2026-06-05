@@ -63,6 +63,7 @@ apk add --no-cache \
   openssh \
   rsync \
   curl \
+  sqlite \
   ca-certificates \
   caddy \
   acl \
